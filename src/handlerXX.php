@@ -2,7 +2,7 @@
 
 /**
  * Яндекс.Деньги
- * Версия 1.0.1
+ * Версия 1.0.2
  * Лицензионный договор:
  * Любое использование Вами программы означает полное и безоговорочное принятие Вами условий лицензионного договора, размещенного по адресу https://money.yandex.ru/doc.xml?id=527132 (далее – «Лицензионный договор»). Если Вы не принимаете условия Лицензионного договора в полном объёме, Вы не имеете права использовать программу в каких-либо целях.
  */
@@ -27,7 +27,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * в «Настройках магазина» в разделе «Параметры для платежей»
      */
 
-    const YAMONEY_MODULE_VERSION = '1.0.1';
+    const YAMONEY_MODULE_VERSION = '1.0.2';
 
     /**
      * @var int Яндекс.Касса
@@ -748,7 +748,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                     $tax_id = $item->Shop_Item->shop_tax_id;
                 }
                 $tax    = Core_Array::get($this->kassaTaxRates, $tax_id, $this->kassaTaxRateDefault);
-                $amount = $item->getAmount() * ($item->shop_item_id ? 1 - $disc : 1);
+                $amount = $item->getPrice() * ($item->shop_item_id ? 1 - $disc : 1);
                 $builder->addReceiptItem($item->name, $amount, $item->quantity, $tax);
             }
         }
