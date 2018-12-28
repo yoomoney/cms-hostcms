@@ -13,6 +13,8 @@ use YandexCheckout\Model\Notification\NotificationWaitingForCapture;
 use YandexCheckout\Model\NotificationEventType;
 use YandexCheckout\Model\Payment;
 use YandexCheckout\Model\PaymentStatus;
+use YandexCheckout\Model\Receipt\PaymentMode;
+use YandexCheckout\Model\Receipt\PaymentSubject;
 use YandexCheckout\Request\Payments\CreatePaymentRequest;
 use YandexCheckout\Request\Payments\Payment\CreateCaptureRequest;
 
@@ -27,7 +29,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * в «Настройках магазина» в разделе «Параметры для платежей»
      */
 
-    const YAMONEY_MODULE_VERSION = '1.0.2';
+    const YAMONEY_MODULE_VERSION = '1.0.3';
 
     /**
      * @var int Яндекс.Касса
@@ -120,6 +122,18 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     );
 
     /**
+     * Одно из значений перечисления PaymentMode
+     * @var string
+     */
+    protected $defaultPaymentMode = PaymentMode::FULL_PREPAYMENT;
+
+    /**
+     * Одно из значений перечисления PaymentSubject
+     * @var string
+     */
+    protected $defaultPaymentSubject = PaymentSubject::COMPOSITE;
+
+    /**
      * Только для Яндекс.Кассы: укажите, как уведомлять об оплате — одним письмом (после подтверждения оплаты от Яндекс.Кассы) или двумя письмами (при изменений статуса заказа и после окончательно подтверждения оплаты от Кассы)
      * @var bool True — если нужно отправлять два письма, false — если нужно отправлять одно письмо
      * @link https://github.com/yandex-money/yandex-money-cms-hostcms/issues/5
@@ -192,7 +206,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
             }
         } elseif ($action == 'notify') {
             $body = @file_get_contents('php://input');
-            $this->log('info', 'Notification: ' . $body);
+            $this->log('info', 'Notification: '.$body);
             $callbackParams = json_decode($body, true);
             if (json_last_error()) {
                 $this->log('error', 'Parse POST body failed');
@@ -204,16 +218,16 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                     : new NotificationWaitingForCapture($callbackParams);
 
                 $paymentResponse = $notificationModel->getObject();
-                $client = new Client();
+                $client          = new Client();
                 $client->setAuth($this->ym_shopid, $this->ym_password);
-                $paymentId = $paymentResponse->getId();
+                $paymentId  = $paymentResponse->getId();
                 $paymentRow = Core_QueryBuilder::select()
-                    ->from('shop_ym_order_payments')
-                    ->where('payment_id', '=', $paymentId)
-                    ->limit(1)
-                    ->execute()
-                    ->asAssoc()
-                    ->result();
+                                               ->from('shop_ym_order_payments')
+                                               ->where('payment_id', '=', $paymentId)
+                                               ->limit(1)
+                                               ->execute()
+                                               ->asAssoc()
+                                               ->result();
 
                 if (is_array($paymentRow)) {
                     $paymentRow = $paymentRow[0];
@@ -221,18 +235,18 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 
                 $order = Core_Entity::factory('Shop_Order')->find($paymentRow['order_id']);
                 $this->checkValueIsNotEmpty($order, '404 Not Found',
-                    'Order not found. OderId #' . $paymentRow['order_id']);
+                    'Order not found. OderId #'.$paymentRow['order_id']);
 
                 $paymentInfo = $client->getPaymentInfo($paymentId);
                 $this->checkValueIsNotEmpty($paymentInfo, '404 Not Found',
-                    'Payment not found. PaymentId #' . $paymentId);
+                    'Payment not found. PaymentId #'.$paymentId);
 
-                $this->log('info', 'Order: ' . json_encode($order));
-                $this->log('info', 'Payment: ' . json_encode($paymentInfo));
+                $this->log('info', 'Order: '.json_encode($order));
+                $this->log('info', 'Payment: '.json_encode($paymentInfo));
 
                 if ($paymentInfo->getStatus() === PaymentStatus::WAITING_FOR_CAPTURE) {
                     $captureRequest = CreateCaptureRequest::builder()->setAmount($paymentInfo->getAmount())->build();
-                    $paymentInfo = $client->capturePayment($captureRequest, $paymentId);
+                    $paymentInfo    = $client->capturePayment($captureRequest, $paymentId);
                 }
 
                 if ($paymentInfo->getStatus() === PaymentStatus::SUCCEEDED) {
@@ -242,7 +256,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                     $this->log('info', 'Payment canceled');
                     $this->exit200();
                 } else {
-                    $this->log('info', 'Wrong payment status: ' . $paymentInfo->getStatus());
+                    $this->log('info', 'Wrong payment status: '.$paymentInfo->getStatus());
                     $this->exit400();
                 }
             } catch (Exception $e) {
@@ -265,7 +279,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         $action  = Core_Array::getGet('action');
 
         if ($orderId && $action == 'return') {
-            $order = Core_Entity::factory('Shop_Order')->find($orderId);
+            $order       = Core_Entity::factory('Shop_Order')->find($orderId);
             $oSite_Alias = $order->Shop->Site->getCurrentAlias();
             $sSiteAlias  = !is_null($oSite_Alias) ? $oSite_Alias->name : '';
             $sShopPath   = $order->Shop->Structure->getPath();
@@ -281,37 +295,37 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                                             ->result();
 
             if (!$paymentRow) {
-                $this->log('error', 'Payment not found. OrderId: ' . $orderId);
-                header('Location: ' . $failUrl);
+                $this->log('error', 'Payment not found. OrderId: '.$orderId);
+                header('Location: '.$failUrl);
                 exit();
             }
             $paymentId = $paymentRow[0]['payment_id'];
-            $client = new Client();
+            $client    = new Client();
             $client->setAuth($this->ym_shopid, $this->ym_password);
             $paymentInfoResponse = $client->getPaymentInfo($paymentId);
 
-            $this->log('info', 'Order: ' . json_encode($order));
-            $this->log('info', 'Payment: ' . json_encode($paymentInfoResponse));
+            $this->log('info', 'Order: '.json_encode($order));
+            $this->log('info', 'Payment: '.json_encode($paymentInfoResponse));
 
             if ($paymentInfoResponse->getStatus() === PaymentStatus::WAITING_FOR_CAPTURE) {
-                $captureRequest = CreateCaptureRequest::builder()
-                    ->setAmount($paymentInfoResponse->getAmount())
-                    ->build();
+                $captureRequest      = CreateCaptureRequest::builder()
+                                                           ->setAmount($paymentInfoResponse->getAmount())
+                                                           ->build();
                 $paymentInfoResponse = $client->capturePayment($captureRequest, $paymentId);
             }
 
             if ($paymentInfoResponse->getStatus() === PaymentStatus::SUCCEEDED) {
                 $this->completePayment($order);
-                header('Location: ' . $successUrl);
+                header('Location: '.$successUrl);
             } elseif (($paymentInfoResponse->status === PaymentStatus::PENDING) && $paymentInfoResponse->getPaid()) {
                 $this->log('info', 'Payment pending and paid');
-                header('Location: ' . $successUrl);
+                header('Location: '.$successUrl);
             } elseif ($paymentInfoResponse->status === PaymentStatus::CANCELED) {
                 $this->log('info', 'Payment canceled');
-                header('Location: ' . $failUrl);
+                header('Location: '.$failUrl);
             } else {
-                $this->log('error', 'Payment wrong status: ' . $paymentInfoResponse->getStatus());
-                header('Location: ' . $failUrl);
+                $this->log('error', 'Payment wrong status: '.$paymentInfoResponse->getStatus());
+                header('Location: '.$failUrl);
             }
             exit();
         }
@@ -393,10 +407,10 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         <form method="POST" id="frmYandexMoney" action="<?php echo $this->getFormUrl() ?>">
             <?php
             if ($this->mode === self::MODE_KASSA) {
-                if (isset($errors)){
+                if (isset($errors)) {
                     echo $errors;
                 } else {
-            ?>
+                    ?>
                     <table border="0" cellspacing="1" align="center" width="80%">
                         <tr>
                             <td align="center">
@@ -749,7 +763,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 }
                 $tax    = Core_Array::get($this->kassaTaxRates, $tax_id, $this->kassaTaxRateDefault);
                 $amount = $item->getPrice() * ($item->shop_item_id ? 1 - $disc : 1);
-                $builder->addReceiptItem($item->name, $amount, $item->quantity, $tax);
+                $builder->addReceiptItem($item->name, $amount, $item->quantity, $tax, $this->defaultPaymentMode, $this->defaultPaymentSubject);
             }
         }
 
@@ -790,7 +804,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * @param string $level
      * @param string $message
      */
-    private function log($level, $message) {
+    private function log($level, $message)
+    {
         if ($this->enable_logging) {
             YandexCheckoutLogger::instance()->log($level, $message);
         }
@@ -805,8 +820,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     {
         if (!$value) {
             $this->log('error', $logMessage);
-            header('HTTP/1.1 ' . $status);
-            header('Status: ' . $status);
+            header('HTTP/1.1 '.$status);
+            header('Status: '.$status);
             exit();
         }
     }
