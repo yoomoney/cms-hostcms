@@ -42,6 +42,8 @@ use YandexCheckout\Common\AbstractEnum;
  * |qiwi|Платеж из кошелька Qiwi|
  * |installments|Заплатить по частям|
  * |b2b_sberbank|Сбербанк Бизнес Онлайн|
+ * |tinkoff_bank|Интернет-банк Тинькофф|
+ * |psb|ПромсвязьБанк|
  */
 class PaymentMethodType extends AbstractEnum
 {
@@ -57,6 +59,8 @@ class PaymentMethodType extends AbstractEnum
     const ALFABANK       = 'alfabank';
     const INSTALLMENTS   = 'installments';
     const B2B_SBERBANK   = 'b2b_sberbank';
+    const TINKOFF_BANK   = 'tinkoff_bank';
+    const PSB            = 'psb';
 
     protected static $validValues = array(
         self::YANDEX_MONEY   => true,
@@ -69,6 +73,7 @@ class PaymentMethodType extends AbstractEnum
         self::QIWI           => true,
         self::WEBMONEY       => true,
         self::ALFABANK       => true,
+        self::TINKOFF_BANK   => true,
         self::INSTALLMENTS   => true,
         self::B2B_SBERBANK   => true,
     );

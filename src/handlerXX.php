@@ -29,7 +29,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * в «Настройках магазина» в разделе «Параметры для платежей»
      */
 
-    const YAMONEY_MODULE_VERSION = '1.0.3';
+    const YAMONEY_MODULE_VERSION = '1.0.4';
 
     /**
      * @var int Яндекс.Касса
