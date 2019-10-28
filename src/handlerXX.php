@@ -1,22 +1,42 @@
 <?php
 
 /**
- * Яндекс.Деньги
- * Версия 1.0.5
+ * Яндекс.Касса
+ * Версия 1.1.0
+ *
  * Лицензионный договор:
- * Любое использование Вами программы означает полное и безоговорочное принятие Вами условий лицензионного договора, размещенного по адресу https://money.yandex.ru/doc.xml?id=527132 (далее – «Лицензионный договор»). Если Вы не принимаете условия Лицензионного договора в полном объёме, Вы не имеете права использовать программу в каких-либо целях.
+ * Любое использование Вами программы означает полное и безоговорочное принятие Вами условий лицензионного договора,
+ * размещенного по адресу https://money.yandex.ru/doc.xml?id=527132 (далее – «Лицензионный договор»).
+ * Если Вы не принимаете условия Лицензионного договора в полном объёме,
+ * Вы не имеете права использовать программу в каких-либо целях.
  */
 use YandexCheckout\Client;
+use YandexCheckout\Common\Exceptions\ApiException;
+use YandexCheckout\Common\Exceptions\BadApiRequestException;
+use YandexCheckout\Common\Exceptions\ExtensionNotFoundException;
+use YandexCheckout\Common\Exceptions\ForbiddenException;
+use YandexCheckout\Common\Exceptions\InternalServerError;
+use YandexCheckout\Common\Exceptions\NotFoundException;
+use YandexCheckout\Common\Exceptions\ResponseProcessingException;
+use YandexCheckout\Common\Exceptions\TooManyRequestsException;
+use YandexCheckout\Common\Exceptions\UnauthorizedException;
 use YandexCheckout\Model\ConfirmationType;
-use YandexCheckout\Model\Notification\NotificationSucceeded;
-use YandexCheckout\Model\Notification\NotificationWaitingForCapture;
-use YandexCheckout\Model\NotificationEventType;
+use YandexCheckout\Model\Notification\NotificationFactory;
 use YandexCheckout\Model\Payment;
 use YandexCheckout\Model\PaymentStatus;
+use YandexCheckout\Model\Receipt;
 use YandexCheckout\Model\Receipt\PaymentMode;
 use YandexCheckout\Model\Receipt\PaymentSubject;
+use YandexCheckout\Model\ReceiptCustomer;
+use YandexCheckout\Model\ReceiptItem;
+use YandexCheckout\Model\ReceiptType;
+use YandexCheckout\Model\Settlement;
 use YandexCheckout\Request\Payments\CreatePaymentRequest;
+use YandexCheckout\Request\Payments\CreatePaymentResponse;
 use YandexCheckout\Request\Payments\Payment\CreateCaptureRequest;
+use YandexCheckout\Request\Receipts\CreatePostReceiptRequest;
+use YandexCheckout\Request\Receipts\ReceiptResponseInterface;
+use YandexCheckout\Request\Receipts\ReceiptResponseItemInterface;
 
 require_once CMS_FOLDER.'yandex-money'.DIRECTORY_SEPARATOR.'autoload.php';
 
@@ -29,7 +49,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * в «Настройках магазина» в разделе «Параметры для платежей»
      */
 
-    const YAMONEY_MODULE_VERSION = '1.0.5';
+    const YAMONEY_MODULE_VERSION = '1.1.0';
 
     /**
      * @var int Яндекс.Касса
@@ -51,6 +71,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * Укажите нужный MODE из списка выше:
      */
     protected $mode = self::MODE_KASSA;
+
+    protected $apiClient = null;
 
     /**
      * Только для платежей через Яндекс.Деньги: укажите номер кошелька на Яндексе, в который нужно зачислять платежи
@@ -85,6 +107,19 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * @var bool True — если нужно, false — если не нужно
      */
     protected $sendCheck = true;
+
+    /**
+     * Только для Яндекс.Кассы: отправлять в Яндекс.Кассу данные для закрывающих чеков (54-ФЗ)?
+     * @var bool True — если нужно, false — если не нужно
+     */
+    protected $sendSecondCheck = true;
+
+    /**
+     * Только для Яндекс.Кассы: статус заказа, при переходе в который будут отправляться закрывающие чеки
+     * Берется из списка статусов заказов (Домой -> Интернет-магазины -> Справочники -> Справочник статусов заказа)
+     * @var int По умолчанию - "Доставлено"
+     */
+    protected $orderStatusSecondCheck = 3;
 
     /**
      * @var bool Включить логирование.
@@ -133,6 +168,17 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      */
     protected $defaultPaymentSubject = PaymentSubject::COMPOSITE;
 
+
+    /**
+     * @return array
+     */
+    public static function getValidPaymentMode()
+    {
+        return array(
+            PaymentMode::FULL_PREPAYMENT,
+        );
+    }
+
     /**
      * Только для Яндекс.Кассы: укажите, как уведомлять об оплате — одним письмом (после подтверждения оплаты от Яндекс.Кассы) или двумя письмами (при изменений статуса заказа и после окончательно подтверждения оплаты от Кассы)
      * @var bool True — если нужно отправлять два письма, false — если нужно отправлять одно письмо
@@ -170,16 +216,77 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     public function __construct(Shop_Payment_System_Model $oShop_Payment_System_Model)
     {
         $oCore_DataBase = Core_DataBase::instance()
-                                       ->setQueryType(99)
-                                       ->query(
-                                           'CREATE TABLE IF NOT EXISTS shop_ym_order_payments (
-                                            `id` INT NOT NULL AUTO_INCREMENT,
-                                            `order_id` INT NOT NULL,
-                                            `payment_id` VARCHAR(256) NOT NULL,
-                                            PRIMARY KEY (`id`)
-                                         )'
-                                       );
+                        ->setQueryType(99)
+                        ->query(
+                            'CREATE TABLE IF NOT EXISTS shop_ym_order_payments (
+                                `id` INT NOT NULL AUTO_INCREMENT,
+                                `order_id` INT NOT NULL,
+                                `payment_id` VARCHAR(256) NOT NULL,
+                                PRIMARY KEY (`id`)
+                             )'
+                        );
         parent::__construct($oShop_Payment_System_Model);
+
+        Core_Event::attach('Shop_Payment_System_Handler.onBeforeChangedOrder', array($this, 'onChangeOrder'));
+    }
+
+    /**
+     * @param Shop_Payment_System_Handler $object
+     * @param array $args
+     * @throws Core_Exception
+     */
+    public function onChangeOrder($object, $args)
+    {
+        $mode = $args[0];
+        $oShop = $object->getShopOrder();
+        $logger = YandexCheckoutLogger::instance();
+
+        $logger->log('info', 'Mode: ' . $mode);
+        if (in_array($mode, array('changeStatusPaid', 'edit', 'apply')))
+        {
+            $logger->log('info', 'Status before: ' . $object->getShopOrderBeforeAction()->shop_order_status_id . ', Status after: ' . $oShop->shop_order_status_id);
+            // Изменился статус заказа
+            if ($object->getShopOrderBeforeAction()->shop_order_status_id != $oShop->shop_order_status_id)
+            {
+                $logger->log('info', 'Status changed!');
+                if (!$this->isNeedSecondReceipt($oShop->shop_order_status_id)) {
+                    $logger->log('info', 'Second receipt is not need!');
+                    return;
+                }
+
+                $paymentId = $this->getOrderPaymentId($oShop->id);
+                $logger->log('info', 'PaymentId: ' . $paymentId);
+
+                try {
+                    if ($lastReceipt = $this->getLastReceipt($paymentId)) {
+                        $logger->log('info', 'LastReceipt:' . PHP_EOL . json_encode($lastReceipt->jsonSerialize()));
+                    } else {
+                        $logger->log('info', 'LastReceipt is empty!');
+                        return;
+                    }
+
+                    if ($receiptRequest = $this->buildSecondReceipt($lastReceipt, $paymentId, $oShop)) {
+
+                        $logger->log('info', "Second receipt request data: " . PHP_EOL . json_encode($receiptRequest->jsonSerialize()));
+
+                        try {
+                            $response = $this->getClient()->createReceipt($receiptRequest);
+                        } catch (Exception $e) {
+                            $logger->log('error', 'Request second receipt error: ' . $e->getMessage());
+                            return;
+                        }
+
+                        $logger->log('info', 'Request second receipt result: ' . PHP_EOL . json_encode($response->jsonSerialize()));
+                    }
+                } catch (Exception $e) {
+                    $logger->log('info', 'Error: ' . $e->getMessage());
+                    return;
+                }
+
+            } else {
+                $logger->log('info', 'Status NOT changed!');
+            }
+        }
     }
 
     /**
@@ -201,8 +308,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 
                 // Вызов обработчика платежного сервиса
                 Shop_Payment_System_Handler::factory($oShop_Order->Shop_Payment_System)
-                                           ->shopOrder($oShop_Order)
-                                           ->paymentProcessing();
+                    ->shopOrder($oShop_Order)
+                    ->paymentProcessing();
             }
         } elseif ($action == 'notify') {
             $body = @file_get_contents('php://input');
@@ -213,21 +320,25 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 $this->exit400();
             }
             try {
-                $notificationModel = ($callbackParams['event'] === NotificationEventType::PAYMENT_SUCCEEDED)
-                    ? new NotificationSucceeded($callbackParams)
-                    : new NotificationWaitingForCapture($callbackParams);
-
+                $fabric = new NotificationFactory();
+                $notificationModel = $fabric->factory($callbackParams);
+            } catch (\Exception $e) {
+                $this->log('error', 'Invalid notification object - ' . $e->getMessage());
+                header("HTTP/1.1 400 Bad Request");
+                header("Status: 400 Bad Request");
+                exit();
+            }
+            try {
                 $paymentResponse = $notificationModel->getObject();
-                $client          = new Client();
-                $client->setAuth($this->ym_shopid, $this->ym_password);
+                $client = $this->getClient();
                 $paymentId  = $paymentResponse->getId();
                 $paymentRow = Core_QueryBuilder::select()
-                                               ->from('shop_ym_order_payments')
-                                               ->where('payment_id', '=', $paymentId)
-                                               ->limit(1)
-                                               ->execute()
-                                               ->asAssoc()
-                                               ->result();
+                            ->from('shop_ym_order_payments')
+                            ->where('payment_id', '=', $paymentId)
+                            ->limit(1)
+                            ->execute()
+                            ->asAssoc()
+                            ->result();
 
                 if (is_array($paymentRow)) {
                     $paymentRow = $paymentRow[0];
@@ -252,7 +363,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 if ($paymentInfo->getStatus() === PaymentStatus::SUCCEEDED) {
                     $this->completePayment($order);
                     $this->exit200();
-                } elseif ($paymentInfo->getStatus() === PaymentStatus::SUCCEEDED) {
+                } elseif ($paymentInfo->getStatus() === PaymentStatus::CANCELED) {
                     $this->log('info', 'Payment canceled');
                     $this->exit200();
                 } else {
@@ -287,12 +398,12 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
             $successUrl  = $sHandlerUrl."&payment=success";
             $failUrl     = $sHandlerUrl."&payment=fail";
             $paymentRow  = Core_QueryBuilder::select()
-                                            ->from('shop_ym_order_payments')
-                                            ->where('order_id', '=', $orderId)
-                                            ->limit(1)
-                                            ->execute()
-                                            ->asAssoc()
-                                            ->result();
+                         ->from('shop_ym_order_payments')
+                         ->where('order_id', '=', $orderId)
+                         ->limit(1)
+                         ->execute()
+                         ->asAssoc()
+                         ->result();
 
             if (!$paymentRow) {
                 $this->log('error', 'Payment not found. OrderId: '.$orderId);
@@ -300,8 +411,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 exit();
             }
             $paymentId = $paymentRow[0]['payment_id'];
-            $client    = new Client();
-            $client->setAuth($this->ym_shopid, $this->ym_password);
+            $client    = $this->getClient();
             $paymentInfoResponse = $client->getPaymentInfo($paymentId);
 
             $this->log('info', 'Order: '.json_encode($order));
@@ -309,8 +419,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 
             if ($paymentInfoResponse->getStatus() === PaymentStatus::WAITING_FOR_CAPTURE) {
                 $captureRequest      = CreateCaptureRequest::builder()
-                                                           ->setAmount($paymentInfoResponse->getAmount())
-                                                           ->build();
+                                     ->setAmount($paymentInfoResponse->getAmount())
+                                     ->build();
                 $paymentInfoResponse = $client->capturePayment($captureRequest, $paymentId);
             }
 
@@ -389,6 +499,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         $successUrl  = $sHandlerUrl."&payment=success";
         $failUrl     = $sHandlerUrl."&payment=fail";
         $oShop_Order = Core_Entity::factory('Shop_Order', $this->_shopOrder->id);
+        $oShop_Order->invoice = $this->_shopOrder->id;
+        $oShop_Order->save();
         if ($this->mode == self::MODE_KASSA) {
             try {
                 $response = $this->createPayment($sum, $returnUrl);
@@ -530,23 +642,23 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     protected function writePaymentId($response)
     {
         $paymentRow = Core_QueryBuilder::select()
-                                       ->from('shop_ym_order_payments')
-                                       ->where('order_id', '=', $this->_shopOrder->id)
-                                       ->limit(1)
-                                       ->execute()
-                                       ->asAssoc()
-                                       ->result();
+                    ->from('shop_ym_order_payments')
+                    ->where('order_id', '=', $this->_shopOrder->id)
+                    ->limit(1)
+                    ->execute()
+                    ->asAssoc()
+                    ->result();
 
         if ($paymentRow) {
             $result = Core_QueryBuilder::update('shop_ym_order_payments')
-                                       ->columns(array('payment_id' => $response->getId()))
-                                       ->where('order_id', '=', $this->_shopOrder->id)
-                                       ->execute();
+                    ->columns(array('payment_id' => $response->getId()))
+                    ->where('order_id', '=', $this->_shopOrder->id)
+                    ->execute();
         } else {
             $result = Core_QueryBuilder::insert('shop_ym_order_payments')
-                                       ->columns('order_id', 'payment_id')
-                                       ->values($this->_shopOrder->id, $response->getId())
-                                       ->execute();
+                    ->columns('order_id', 'payment_id')
+                    ->values($this->_shopOrder->id, $response->getId())
+                    ->execute();
         }
 
         return $result;
@@ -591,16 +703,16 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     {
         if ($this->mode === self::MODE_KASSA) {
             $string = $callbackParams['action'].';'.$callbackParams['orderSumAmount'].';'
-                      .$callbackParams['orderSumCurrencyPaycash'].';'.$callbackParams['orderSumBankPaycash'].';'
-                      .$callbackParams['shopId'].';'.$callbackParams['invoiceId'].';'
-                      .$callbackParams['customerNumber'].';'.$this->ym_password;
+                .$callbackParams['orderSumCurrencyPaycash'].';'.$callbackParams['orderSumBankPaycash'].';'
+                .$callbackParams['shopId'].';'.$callbackParams['invoiceId'].';'
+                .$callbackParams['customerNumber'].';'.$this->ym_password;
 
             return strtoupper($callbackParams['md5']) == strtoupper(md5($string));
         } else {
             $string = $callbackParams['notification_type'].'&'.$callbackParams['operation_id'].'&'
-                      .$callbackParams['amount'].'&'.$callbackParams['currency'].'&'
-                      .$callbackParams['datetime'].'&'.$callbackParams['sender'].'&'
-                      .$callbackParams['codepro'].'&'.$this->ym_password.'&'.$callbackParams['label'];
+                .$callbackParams['amount'].'&'.$callbackParams['currency'].'&'
+                .$callbackParams['datetime'].'&'.$callbackParams['sender'].'&'
+                .$callbackParams['codepro'].'&'.$this->ym_password.'&'.$callbackParams['label'];
 
             $check = (sha1($string) == $callbackParams['sha1_hash']);
             if (!$check) {
@@ -623,8 +735,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         header("Content-type: text/xml; charset=utf-8");
         $xml = '<?xml version="1.0" encoding="UTF-8"?>
             <'.$callbackParams['action'].'Response performedDatetime="'.date("c").'" code="'.$code
-               .'" invoiceId="'.$invoiceId.'" shopId="'.$this->ym_shopid
-               .'" techmessage="'.$message.'"/>';
+            .'" invoiceId="'.$invoiceId.'" shopId="'.$this->ym_shopid
+            .'" techmessage="'.$message.'"/>';
         echo $xml;
         die();
     }
@@ -703,31 +815,36 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     /**
      * @param $sum
      *
-     * @return \YandexCheckout\Request\Payments\CreatePaymentResponse
+     * @param $returnUrl
+     * @return CreatePaymentResponse
+     * @throws ApiException
+     * @throws BadApiRequestException
+     * @throws ForbiddenException
+     * @throws InternalServerError
+     * @throws NotFoundException
+     * @throws ResponseProcessingException
+     * @throws TooManyRequestsException
+     * @throws UnauthorizedException
      */
     protected function createPayment($sum, $returnUrl)
     {
-        $client = new Client();
-        $client->setAuth($this->ym_shopid, $this->ym_password);
-        if ($this->enable_logging) {
-            $client->setLogger(YandexCheckoutLogger::instance());
-        }
+        $client = $this->getClient();
 
         $builder = CreatePaymentRequest::builder()
-                                       ->setAmount($sum)
-                                       ->setPaymentMethodData('')
-                                       ->setCapture(true)
-                                       ->setDescription($this->createDescription())
-                                       ->setConfirmation(
-                                           array(
-                                               'type'      => ConfirmationType::REDIRECT,
-                                               'returnUrl' => $returnUrl,
-                                           )
-                                       )
-                                       ->setMetadata(array(
-                                           'cms_name'       => 'ya_api_hostcms',
-                                           'module_version' => self::YAMONEY_MODULE_VERSION,
-                                       ));
+                ->setAmount($sum)
+                ->setPaymentMethodData('')
+                ->setCapture(true)
+                ->setDescription($this->createDescription())
+                ->setConfirmation(
+                    array(
+                        'type'      => ConfirmationType::REDIRECT,
+                        'returnUrl' => $returnUrl,
+                    )
+                )
+                ->setMetadata(array(
+                    'cms_name'       => 'ya_api_hostcms',
+                    'module_version' => self::YAMONEY_MODULE_VERSION,
+                ));
 
         if ($this->sendCheck) {
             $oShop_Order     = Core_Entity::factory('Shop_Order', $this->_shopOrder->id);
@@ -737,7 +854,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
             $phone = isset($this->_shopOrder->phone) ? $this->_shopOrder->phone : '';
             if (!empty($email)) {
                 $builder->setReceiptEmail($email);
-            } elseif (!empty($phone)) {
+            }
+            if (!empty($phone)) {
                 $builder->setReceiptPhone($phone);
             }
 
@@ -763,13 +881,20 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 }
                 $tax    = Core_Array::get($this->kassaTaxRates, $tax_id, $this->kassaTaxRateDefault);
                 $amount = $item->getPrice() * ($item->shop_item_id ? 1 - $disc : 1);
-                $builder->addReceiptItem($item->name, $amount, $item->quantity, $tax, $this->defaultPaymentMode, $this->defaultPaymentSubject);
+                $builder->addReceiptItem(
+                    $item->name,
+                    $amount,
+                    $item->quantity,
+                    $tax,
+                    $this->defaultPaymentMode,
+                    $this->defaultPaymentSubject
+                );
             }
         }
 
         $createPaymentRequest = $builder->build();
         $receipt              = $createPaymentRequest->getReceipt();
-        if ($receipt instanceof \YandexCheckout\Model\Receipt) {
+        if ($receipt instanceof Receipt) {
             $receipt->normalize($createPaymentRequest->getAmount());
         }
 
@@ -780,6 +905,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 
     /**
      * @param $order
+     * @throws Core_Exception
      */
     private function completePayment($order)
     {
@@ -868,6 +994,194 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 
         return (string)mb_substr($description, 0, Payment::MAX_LENGTH_DESCRIPTION);
     }
+
+    /**
+     * @return Client
+     */
+    private function getClient()
+    {
+        if (!$this->apiClient) {
+            $this->apiClient = new Client();
+            $userAgent = $this->apiClient->getApiClient()->getUserAgent();
+            $userAgent->setCms('HostCMS', Informationsystem_Module::factory('informationsystem')->version);
+            $userAgent->setModule('PaymentGateway', self::YAMONEY_MODULE_VERSION);
+            $this->apiClient->setAuth($this->ym_shopid, $this->ym_password);
+            if ($this->enable_logging) {
+                $this->apiClient->setLogger(YandexCheckoutLogger::instance());
+            }
+        }
+
+        return $this->apiClient;
+    }
+
+    /**
+     * @param $order_status_id
+     * @return bool
+     */
+    private function isNeedSecondReceipt($order_status_id)
+    {
+        return ($this->sendCheck && $this->sendSecondCheck && $this->orderStatusSecondCheck == $order_status_id);
+    }
+
+    /**
+     * @param int $order_id
+     * @return string|null
+     * @throws Core_Exception
+     */
+    private function getOrderPaymentId($order_id)
+    {
+        $result = null;
+        $paymentRow = Core_QueryBuilder::select()
+            ->from('shop_ym_order_payments')
+            ->where('order_id', '=', $order_id)
+            ->orderBy('id', 'DESC')
+            ->limit(1)
+            ->execute()
+            ->asAssoc()
+            ->result();
+
+        if (is_array($paymentRow) && !empty($paymentRow[0]['payment_id'])) {
+            $result = $paymentRow[0]['payment_id'];
+        }
+        return $result;
+    }
+
+    /**
+     * @param $paymentId
+     * @return mixed|ReceiptResponseInterface
+     * @throws ApiException
+     * @throws BadApiRequestException
+     * @throws ExtensionNotFoundException
+     * @throws ForbiddenException
+     * @throws InternalServerError
+     * @throws NotFoundException
+     * @throws ResponseProcessingException
+     * @throws TooManyRequestsException
+     * @throws UnauthorizedException
+     */
+    private function getLastReceipt($paymentId)
+    {
+        $receipts = $this->getClient()->getReceipts(array('payment_id' => $paymentId))->getItems();
+
+        return array_pop($receipts);
+    }
+
+    /**
+     * @param ReceiptResponseInterface $lastReceipt
+     * @param string $paymentId
+     * @param Shop_Order_Model $order
+     * @return CreatePostReceiptRequest|null
+     */
+    private function buildSecondReceipt($lastReceipt, $paymentId, $order)
+    {
+        if ($lastReceipt instanceof ReceiptResponseInterface) {
+            if ($lastReceipt->getType() === "refund") {
+                return null;
+            }
+
+            $resendItems = $this->getResendItems($lastReceipt->getItems());
+
+            if (count($resendItems['items']) < 1) {
+                $this->log('info', 'Second receipt is not required');
+                return null;
+            }
+
+            try {
+                $customer = $this->getReceiptCustomer($order);
+
+                if (empty($customer)) {
+                    $this->log('error', 'Need customer phone or email for second receipt');
+                    return null;
+                }
+
+                $receiptBuilder = CreatePostReceiptRequest::builder();
+                $receiptBuilder->setObjectId($paymentId)
+                    ->setType(ReceiptType::PAYMENT)
+                    ->setItems($resendItems['items'])
+                    ->setSettlements(array(
+                        new Settlement(array(
+                            'type' => 'prepayment',
+                            'amount' => array(
+                                'value' => $resendItems['amount'],
+                                'currency' => 'RUB',
+                            ),
+                        )),
+                    ))
+                    ->setCustomer($customer)
+                    ->setSend(true);
+
+                return $receiptBuilder->build();
+            } catch (Exception $e) {
+                $this->log('error', $e->getMessage() . '. Property name: '. $e->getProperty());
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param Shop_Order_Model $order
+     * @return bool|ReceiptCustomer
+     */
+    private function getReceiptCustomer($order)
+    {
+        $customerData = array();
+
+        if (!empty($order->email)) {
+            $customerData['email'] = $order->email;
+        }
+
+        if (!empty($order->phone)) {
+            $customerData['phone'] = $order->phone;
+        }
+
+        if (!empty($order->tin)) {
+            $customerData['inn'] = $order->tin;
+        }
+
+        $userName = array();
+        if (!empty($order->surname))    $userName[] = $order->surname;
+        if (!empty($order->name))       $userName[] = $order->name;
+        if (!empty($order->patronymic)) $userName[] = $order->patronymic;
+        if ($userFullName = implode(' ', $userName)) {
+            $customerData['full_name'] = $userFullName;
+        }
+
+        return new ReceiptCustomer($customerData);
+    }
+
+    /**
+     * @param ReceiptResponseItemInterface[] $items
+     *
+     * @return array
+     */
+    private function getResendItems($items)
+    {
+        $result = array(
+            'items'  => array(),
+            'amount' => 0,
+        );
+
+        foreach ($items as $item) {
+            if ($this->isNeedResendItem($item->getPaymentMode())) {
+                $item->setPaymentMode(PaymentMode::FULL_PAYMENT);
+                $result['items'][] = new ReceiptItem($item->jsonSerialize());
+                $result['amount'] += $item->getAmount() / 100.0;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param string $paymentMode
+     *
+     * @return bool
+     */
+    private function isNeedResendItem($paymentMode)
+    {
+        return in_array($paymentMode, self::getValidPaymentMode());
+    }
 }
 
 
@@ -887,8 +1201,8 @@ class YandexCheckoutLogger extends Core_Log
     public function log($level = 'info', $message, $context = null)
     {
         $this->clear()
-             ->notify(false)
-             ->status(Core_Log::$MESSAGE)
-             ->write($message);
+            ->notify(false)
+            ->status(Core_Log::$MESSAGE)
+            ->write($message);
     }
 }

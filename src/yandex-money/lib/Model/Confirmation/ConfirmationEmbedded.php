@@ -1,5 +1,4 @@
 <?php
-
 /**
  * The MIT License
  *
@@ -24,19 +23,46 @@
  * THE SOFTWARE.
  */
 
-namespace YandexCheckout\Model\PaymentMethod;
+namespace YandexCheckout\Model\Confirmation;
 
-use YandexCheckout\Model\PaymentMethodType;
+
+use YandexCheckout\Common\Exceptions\InvalidPropertyValueTypeException;
+use YandexCheckout\Helpers\TypeCast;
+use YandexCheckout\Model\ConfirmationType;
 
 /**
- * PaymentMethodAndroidPay
- * Объект, описывающий метод оплаты, при оплате через Android Pay
- * @property string $type Тип объекта
+ * @property string $confirmationToken Токен для checkout.js
  */
-class PaymentMethodAndroidPay extends AbstractPaymentMethod
+class ConfirmationEmbedded extends AbstractConfirmation
 {
+    private $confirmationToken;
+
     public function __construct()
     {
-        $this->_setType(PaymentMethodType::ANDROID_PAY);
+        $this->_setType(ConfirmationType::EMBEDDED);
+    }
+
+    /**
+     * @return string
+     */
+    public function getConfirmationToken()
+    {
+        return $this->confirmationToken;
+    }
+
+    /**
+     * @param string $confirmationToken
+     */
+    public function setConfirmationToken($confirmationToken)
+    {
+        if ($confirmationToken === null || $confirmationToken === '') {
+            $this->confirmationToken = null;
+        } elseif (TypeCast::canCastToString($confirmationToken)) {
+            $this->confirmationToken = (string)$confirmationToken;
+        } else {
+            throw new InvalidPropertyValueTypeException(
+                'Invalid confirmationToken value type', 0, 'confirmationEmbedded.confirmationToken', $confirmationToken
+            );
+        }
     }
 }
