@@ -1,121 +1,116 @@
 <?php
 
 /**
- * Яндекс.Касса
- * Версия 1.2.1
+ * ЮKassa
+ * Версия 2.0.0
  *
  * Лицензионный договор:
  * Любое использование Вами программы означает полное и безоговорочное принятие Вами условий лицензионного договора,
- * размещенного по адресу https://money.yandex.ru/doc.xml?id=527132 (далее – «Лицензионный договор»).
+ * размещенного по адресу https://yoomoney.ru/doc.xml?id=527132 (далее – «Лицензионный договор»).
  * Если Вы не принимаете условия Лицензионного договора в полном объёме,
  * Вы не имеете права использовать программу в каких-либо целях.
  */
-use YandexCheckout\Client;
-use YandexCheckout\Common\Exceptions\ApiException;
-use YandexCheckout\Common\Exceptions\BadApiRequestException;
-use YandexCheckout\Common\Exceptions\ExtensionNotFoundException;
-use YandexCheckout\Common\Exceptions\ForbiddenException;
-use YandexCheckout\Common\Exceptions\InternalServerError;
-use YandexCheckout\Common\Exceptions\NotFoundException;
-use YandexCheckout\Common\Exceptions\ResponseProcessingException;
-use YandexCheckout\Common\Exceptions\TooManyRequestsException;
-use YandexCheckout\Common\Exceptions\UnauthorizedException;
-use YandexCheckout\Model\ConfirmationType;
-use YandexCheckout\Model\Notification\NotificationFactory;
-use YandexCheckout\Model\Payment;
-use YandexCheckout\Model\PaymentStatus;
-use YandexCheckout\Model\Receipt;
-use YandexCheckout\Model\Receipt\PaymentMode;
-use YandexCheckout\Model\Receipt\PaymentSubject;
-use YandexCheckout\Model\ReceiptCustomer;
-use YandexCheckout\Model\ReceiptItem;
-use YandexCheckout\Model\ReceiptType;
-use YandexCheckout\Model\Settlement;
-use YandexCheckout\Request\Payments\CreatePaymentRequest;
-use YandexCheckout\Request\Payments\CreatePaymentResponse;
-use YandexCheckout\Request\Payments\Payment\CreateCaptureRequest;
-use YandexCheckout\Request\Receipts\CreatePostReceiptRequest;
-use YandexCheckout\Request\Receipts\ReceiptResponseInterface;
-use YandexCheckout\Request\Receipts\ReceiptResponseItemInterface;
+use YooKassa\Client;
+use YooKassa\Common\Exceptions\ApiException;
+use YooKassa\Common\Exceptions\BadApiRequestException;
+use YooKassa\Common\Exceptions\ExtensionNotFoundException;
+use YooKassa\Common\Exceptions\ForbiddenException;
+use YooKassa\Common\Exceptions\InternalServerError;
+use YooKassa\Common\Exceptions\NotFoundException;
+use YooKassa\Common\Exceptions\ResponseProcessingException;
+use YooKassa\Common\Exceptions\TooManyRequestsException;
+use YooKassa\Common\Exceptions\UnauthorizedException;
+use YooKassa\Model\ConfirmationType;
+use YooKassa\Model\Notification\NotificationFactory;
+use YooKassa\Model\Payment;
+use YooKassa\Model\PaymentStatus;
+use YooKassa\Model\Receipt;
+use YooKassa\Model\Receipt\PaymentMode;
+use YooKassa\Model\Receipt\PaymentSubject;
+use YooKassa\Model\ReceiptCustomer;
+use YooKassa\Model\ReceiptItem;
+use YooKassa\Model\ReceiptType;
+use YooKassa\Model\Settlement;
+use YooKassa\Request\Payments\CreatePaymentRequest;
+use YooKassa\Request\Payments\CreatePaymentResponse;
+use YooKassa\Request\Payments\Payment\CreateCaptureRequest;
+use YooKassa\Request\Receipts\CreatePostReceiptRequest;
+use YooKassa\Request\Receipts\ReceiptResponseInterface;
+use YooKassa\Request\Receipts\ReceiptResponseItemInterface;
 
-require_once CMS_FOLDER.'yandex-money'.DIRECTORY_SEPARATOR.'autoload.php';
+require_once CMS_FOLDER.'yoomoney'.DIRECTORY_SEPARATOR.'autoload.php';
 
 class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 {
     /**
      * Адрес для уведомлений: https://[ваш-сайт]/shop/cart/?action=notify
      *
-     * Этот адрес необходимо указать на сайте Яндекс.Кассы
+     * Этот адрес необходимо указать на сайте ЮKassa
      * в «Настройках магазина» в разделе «Параметры для платежей»
      */
 
-    const YAMONEY_MODULE_VERSION = '1.2.1';
+    const YOOMONEY_MODULE_VERSION = '2.0.0';
 
     /**
-     * @var int Яндекс.Касса
+     * @var int ЮKassa
      */
-    const MODE_KASSA = 1;
+    const MODE_YOOKASSA = 1;
 
     /**
-     * @var int Яндекс.Деньги
+     * @var int ЮMoney
      */
     const MODE_MONEY = 2;
 
     /**
-     * @var int Платежка
-     */
-    const MODE_BILLING = 3;
-
-    /**
-     * @var int Через что вы будете принимать платежи: Яндекс.Касса, Яндекс.Деньги или Платежку?
+     * @var int Через что вы будете принимать платежи: ЮKassa или ЮMoney?
      * Укажите нужный MODE из списка выше:
      */
-    protected $mode = self::MODE_KASSA;
+    protected $mode = self::MODE_YOOKASSA;
 
     protected $apiClient = null;
 
     /**
-     * Только для платежей через Яндекс.Деньги: укажите номер кошелька на Яндексе, в который нужно зачислять платежи
+     * Только для платежей через ЮMoney: укажите номер кошелька на ЮMoney, в который нужно зачислять платежи
      * @var string Номер кошелька
      */
-    protected $ym_account = '';
+    protected $yoo_account = '';
 
     /**
-     * @var int Только для Яндекс.Кассы: укажите shopId из личного кабинета Яндекс.Кассы
+     * @var int Только для ЮKassa: укажите shopId из личного кабинета ЮKassa
      */
-    protected $ym_shopid = 0;
+    protected $yoo_shopid = 0;
 
     /**
-     * Только для Яндекс.Кассы: укажите «Секретный ключ» из личного кабинета Яндекс.Кассы
+     * Только для ЮKassa: укажите «Секретный ключ» из личного кабинета ЮKassa
      * @var string Секретный ключ
      */
-    protected $ym_password = '';
+    protected $yoo_password = '';
 
     /**
-     * Только для Яндекс.Кассы: укажите описание платежа.
+     * Только для ЮKassa: укажите описание платежа.
      * Это описание транзакции, которое пользователь увидит при оплате,
-     * а вы — в личном кабинете Яндекс.Кассы. Например, «Оплата заказа №72».
+     * а вы — в личном кабинете ЮKassa. Например, «Оплата заказа №72».
      * Чтобы в описание подставлялся номер заказа (как в примере),
      * поставьте на его месте %id% (Оплата заказа №%id%).
      * Ограничение для описания — 128 символов.
      * @var string Описание платежа
      */
-    protected $ym_description = 'Оплата заказа №%id%';
+    protected $yoo_description = 'Оплата заказа №%id%';
 
     /**
-     * Только для Яндекс.Кассы: отправлять в Яндекс.Кассу данные для чеков (54-ФЗ)?
+     * Только для ЮKassa: отправлять в ЮKassa данные для чеков (54-ФЗ)?
      * @var bool True — если нужно, false — если не нужно
      */
     protected $sendCheck = true;
 
     /**
-     * Только для Яндекс.Кассы: отправлять в Яндекс.Кассу данные для закрывающих чеков (54-ФЗ)?
+     * Только для ЮKassa: отправлять в ЮKassa данные для закрывающих чеков (54-ФЗ)?
      * @var bool True — если нужно, false — если не нужно
      */
     protected $sendSecondCheck = true;
 
     /**
-     * Только для Яндекс.Кассы: статус заказа, при переходе в который будут отправляться закрывающие чеки
+     * Только для ЮKassa: статус заказа, при переходе в который будут отправляться закрывающие чеки
      * Берется из списка статусов заказов (Домой -> Интернет-магазины -> Справочники -> Справочник статусов заказа)
      * @var int По умолчанию - "Доставлено"
      */
@@ -127,26 +122,26 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     protected $enable_logging = false;
 
     /**
-     * Ставки НДС в системе Яндекс.Кассы:
+     * Ставки НДС в системе ЮKassa:
      *     1 - Без НДС
      *     2 - 0%
      *     3 - 10%
      *     4 - 20%
      *     5 - Рассчётная ставка 10/110
      *     6 - Рассчётная ставка 20/120
-     * @var int Только для Яндекс.Кассы: укажите номер из списка выше, который соответствует вашей налоговой ставке
+     * @var int Только для ЮKassa: укажите номер из списка выше, который соответствует вашей налоговой ставке
      */
     protected $kassaTaxRateDefault = 4;
 
     /**
-     * Только для Яндекс.Кассы. В столбике слева представлены id налоговых ставок, которые есть в вашем магазине. Сопоставьте их с номерами ставок из этого списка:
+     * Только для ЮKassa. В столбике слева представлены id налоговых ставок, которые есть в вашем магазине. Сопоставьте их с номерами ставок из этого списка:
      *     1 - Без НДС
      *     2 - 0%
      *     3 - 10%
      *     4 - 20%
      *     5 - Расчётная ставка 10/110
      *     6 - Расчётная ставка 20/120
-     * @var array Соотнесите ставки в вашем магазине со ставками в Яндекс.Кассе
+     * @var array Соотнесите ставки в вашем магазине со ставками в ЮKassa
      */
     protected $kassaTaxRates = array(
         2  => 4,
@@ -180,29 +175,11 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     }
 
     /**
-     * Только для Яндекс.Кассы: укажите, как уведомлять об оплате — одним письмом (после подтверждения оплаты от Яндекс.Кассы) или двумя письмами (при изменений статуса заказа и после окончательно подтверждения оплаты от Кассы)
+     * Только для ЮKassa: укажите, как уведомлять об оплате — одним письмом (после подтверждения оплаты от ЮKassa) или двумя письмами (при изменений статуса заказа и после окончательно подтверждения оплаты от Юkassa)
      * @var bool True — если нужно отправлять два письма, false — если нужно отправлять одно письмо
-     * @link https://github.com/yandex-money/yandex-money-cms-hostcms/issues/5
+     * @link https://github.com/yoomoney/cms-hostcms/issues/5
      */
     protected $sendChangeStatusEmail = true;
-
-    /**
-     *Только для Платежки: укажите ID формы
-     * @var string ID формы
-     */
-    protected $billingId = '';
-
-    /**
-     * Только для Платежки: если нужно, отредактируйте назначение платежа. Напишите в нем всё, что поможет отличить заказ, который оплатили через Платежку — эта информация будет в платежном поручении
-     * @var string Назначение платежа
-     */
-    protected $billingPurpose = 'Номер заказа %order_id% Оплата через Платежку';
-
-    /**
-     * Только для Платежки:  укажите, какой статус соответствует заказу, для оплаты которого выбрали Платежку. Статус должен показать, что результат платежа неизвестен: заплатил клиент или нет, вы можете узнать только из уведомления на электронной почте или в своем банке
-     * @var int Айди статуса заказа
-     */
-    protected $billingChangeStatus = 0;
 
     /**
      * Id валюты, в которой будет производиться расчет суммы:
@@ -211,14 +188,14 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      *     3 - доллары (USD)
      * @var int id валюты
      */
-    protected $ym_currency_id = 1;
+    protected $yoo_currency_id = 1;
 
     public function __construct(Shop_Payment_System_Model $oShop_Payment_System_Model)
     {
         $oCore_DataBase = Core_DataBase::instance()
                         ->setQueryType(99)
                         ->query(
-                            'CREATE TABLE IF NOT EXISTS shop_ym_order_payments (
+                            'CREATE TABLE IF NOT EXISTS shop_yoo_order_payments (
                                 `id` INT NOT NULL AUTO_INCREMENT,
                                 `order_id` INT NOT NULL,
                                 `payment_id` VARCHAR(256) NOT NULL,
@@ -239,7 +216,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     {
         $mode = $args[0];
         $oShop = $object->getShopOrder();
-        $logger = YandexCheckoutLogger::instance();
+        $logger = YooMoneyLogger::instance();
 
         $logger->log('info', 'Mode: ' . $mode);
         if (in_array($mode, array('changeStatusPaid', 'edit', 'apply')))
@@ -333,7 +310,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 $client = $this->getClient();
                 $paymentId  = $paymentResponse->getId();
                 $paymentRow = Core_QueryBuilder::select()
-                            ->from('shop_ym_order_payments')
+                            ->from('shop_yoo_order_payments')
                             ->where('payment_id', '=', $paymentId)
                             ->limit(1)
                             ->execute()
@@ -398,7 +375,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
             $successUrl  = $sHandlerUrl."&payment=success";
             $failUrl     = $sHandlerUrl."&payment=fail";
             $paymentRow  = Core_QueryBuilder::select()
-                         ->from('shop_ym_order_payments')
+                         ->from('shop_yoo_order_payments')
                          ->where('order_id', '=', $orderId)
                          ->limit(1)
                          ->execute()
@@ -458,10 +435,10 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      */
     public function getSumWithCoeff()
     {
-        if ($this->ym_currency_id > 0 && $this->_shopOrder->shop_currency_id > 0) {
+        if ($this->yoo_currency_id > 0 && $this->_shopOrder->shop_currency_id > 0) {
             $sum = Shop_Controller::instance()->getCurrencyCoefficientInShopCurrency(
                 $this->_shopOrder->Shop_Currency,
-                Core_Entity::factory('Shop_Currency', $this->ym_currency_id)
+                Core_Entity::factory('Shop_Currency', $this->yoo_currency_id)
             );
         } else {
             $sum = 0;
@@ -501,7 +478,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         $oShop_Order = Core_Entity::factory('Shop_Order', $this->_shopOrder->id);
         $oShop_Order->invoice = $this->_shopOrder->id;
         $oShop_Order->save();
-        if ($this->mode == self::MODE_KASSA) {
+        if ($this->mode == self::MODE_YOOKASSA) {
             try {
                 $response = $this->createPayment($sum, $returnUrl);
                 if ($response) {
@@ -516,9 +493,9 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         }
 
         ?>
-        <form method="POST" id="frmYandexMoney" action="<?php echo $this->getFormUrl() ?>">
+        <form method="POST" id="frmYooMoney" action="<?php echo $this->getFormUrl() ?>">
             <?php
-            if ($this->mode === self::MODE_KASSA) {
+            if ($this->mode === self::MODE_YOOKASSA) {
                 if (isset($errors)) {
                     echo $errors;
                 } else {
@@ -526,14 +503,13 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                     <table border="0" cellspacing="1" align="center" width="80%">
                         <tr>
                             <td align="center">
-                                <a href="<?= $confirmationUrl ?>"><img width="165" height="76"
-                                                                       src="data:image/png;base64,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"/></a>
+                                <a href="<?php echo $confirmationUrl?>" class="btn btn-primary">Оплатить</a>
                             </td>
                         </tr>
                     </table>
                 <?php }
             } elseif ($this->mode === self::MODE_MONEY) { ?>
-                <input type="hidden" name="receiver" value="<?php echo htmlspecialchars($this->ym_account); ?>">
+                <input type="hidden" name="receiver" value="<?php echo htmlspecialchars($this->yoo_account); ?>">
                 <input type="hidden" name="formcomment" value="<?php echo htmlspecialchars($sSiteAlias); ?>">
                 <input type="hidden" name="short-dest" value="<?php echo htmlspecialchars($sSiteAlias); ?>">
                 <input type="hidden" name="writable-targets" value="false">
@@ -551,67 +527,16 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 <input type="hidden" name="need-phone" value="false">
                 <input type="hidden" name="need-address" value="false">
                 <input type="submit" name="BuyButton" value="Оплатить">
-            <?php } elseif ($this->mode === self::MODE_BILLING) {
-                $narrative = $this->parsePlaceholders($this->billingPurpose, $this->_shopOrder);
-                $tmp       = array();
-                if (!empty($this->_shopOrder->surname)) {
-                    $tmp[] = $this->_shopOrder->surname;
-                }
-                if (!empty($this->_shopOrder->name)) {
-                    $tmp[] = $this->_shopOrder->name;
-                }
-                if (!empty($this->_shopOrder->patronymic)) {
-                    $tmp[] = $this->_shopOrder->patronymic;
-                }
-                $fio = implode(' ', $tmp);
-                ?>
-                <input type="hidden" name="formId" value="<?php echo htmlspecialchars($this->billingId); ?>"/>
-                <input type="hidden" name="narrative" value="<?php echo htmlspecialchars($narrative); ?>"/>
-                <input type="hidden" name="quickPayVersion" value="2"/>
-
-                <table border="0" cellspacing="1" align="center" width="80%" bgcolor="#CCCCCC">
-                    <tr>
-                        <td>ФИО плательщика</td>
-                        <td>
-                            <input type="text" name="fio" value="<?php echo htmlspecialchars($fio); ?>"
-                                   id="ym-billing-fio"/>
-                            <div id="ym-billing-fio-error" style="display:none;">Укажите фамилию, имя и отчество
-                                плательщика
-                            </div>
-                        </td>
-                    </tr>
-                    <tr bgcolor="#FFFFFF">
-                        <td width="490"></td>
-                        <td width="48"><input type="submit" name="BuyButton" id='button-confirm' value="Оплатить"></td>
-                    </tr>
-                </table>
-            <?php } ?>
+            <?php }?>
         </form>
         <script type="text/javascript">
             document.getElementById('button-confirm').addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-                <?php if ($this->mode === self::MODE_BILLING) { ?>
-                var field = document.getElementById('ym-billing-fio');
-                var error = document.getElementById('ym-billing-fio-error');
-                var parts = field.value.trim().split(/\s+/);
-                if (parts.length == 3) {
-                    error.style.display = 'none';
-                    field.value = parts.join(' ');
-                    document.getElementById('frmYandexMoney').submit();
-                } else {
-                    error.style.display = 'block';
-                }
-                <?php } else { ?>
-                document.getElementById('frmYandexMoney').submit();
-                <?php } ?>
+                document.getElementById('frmYooMoney').submit();
             }, false);
         </script>
         <?php
-        if ($this->mode === self::MODE_BILLING && $this->billingChangeStatus > 0) {
-            $oShop_Order->shop_order_status_id = $this->billingChangeStatus;
-            $oShop_Order->save();
-        }
     }
 
     public function getInvoice()
@@ -642,7 +567,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     protected function writePaymentId($response)
     {
         $paymentRow = Core_QueryBuilder::select()
-                    ->from('shop_ym_order_payments')
+                    ->from('shop_yoo_order_payments')
                     ->where('order_id', '=', $this->_shopOrder->id)
                     ->limit(1)
                     ->execute()
@@ -650,12 +575,12 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                     ->result();
 
         if ($paymentRow) {
-            $result = Core_QueryBuilder::update('shop_ym_order_payments')
+            $result = Core_QueryBuilder::update('shop_yoo_order_payments')
                     ->columns(array('payment_id' => $response->getId()))
                     ->where('order_id', '=', $this->_shopOrder->id)
                     ->execute();
         } else {
-            $result = Core_QueryBuilder::insert('shop_ym_order_payments')
+            $result = Core_QueryBuilder::insert('shop_yoo_order_payments')
                     ->columns('order_id', 'payment_id')
                     ->values($this->_shopOrder->id, $response->getId())
                     ->execute();
@@ -669,14 +594,11 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      */
     private function getFormUrl()
     {
-        if ($this->mode === self::MODE_BILLING) {
-            return 'https://money.yandex.ru/fastpay/confirm';
-        }
         $sUrl = 'https://';
 
-        return $this->mode === self::MODE_KASSA
+        return $this->mode === self::MODE_YOOKASSA
             ? ''
-            : $sUrl.'money.yandex.ru/quickpay/confirm.xml';
+            : $sUrl.'yoomoney.ru/quickpay/confirm.xml';
     }
 
     /**
@@ -701,18 +623,18 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 
     private function checkSign($callbackParams)
     {
-        if ($this->mode === self::MODE_KASSA) {
+        if ($this->mode === self::MODE_YOOKASSA) {
             $string = $callbackParams['action'].';'.$callbackParams['orderSumAmount'].';'
                 .$callbackParams['orderSumCurrencyPaycash'].';'.$callbackParams['orderSumBankPaycash'].';'
                 .$callbackParams['shopId'].';'.$callbackParams['invoiceId'].';'
-                .$callbackParams['customerNumber'].';'.$this->ym_password;
+                .$callbackParams['customerNumber'].';'.$this->yoo_password;
 
             return strtoupper($callbackParams['md5']) == strtoupper(md5($string));
         } else {
             $string = $callbackParams['notification_type'].'&'.$callbackParams['operation_id'].'&'
                 .$callbackParams['amount'].'&'.$callbackParams['currency'].'&'
                 .$callbackParams['datetime'].'&'.$callbackParams['sender'].'&'
-                .$callbackParams['codepro'].'&'.$this->ym_password.'&'.$callbackParams['label'];
+                .$callbackParams['codepro'].'&'.$this->yoo_password.'&'.$callbackParams['label'];
 
             $check = (sha1($string) == $callbackParams['sha1_hash']);
             if (!$check) {
@@ -727,7 +649,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 
     private function sendCode($callbackParams, $code, $message = '')
     {
-        if ($this->mode != self::MODE_KASSA) {
+        if ($this->mode != self::MODE_YOOKASSA) {
             return;
         }
 
@@ -735,7 +657,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         header("Content-type: text/xml; charset=utf-8");
         $xml = '<?xml version="1.0" encoding="UTF-8"?>
             <'.$callbackParams['action'].'Response performedDatetime="'.date("c").'" code="'.$code
-            .'" invoiceId="'.$invoiceId.'" shopId="'.$this->ym_shopid
+            .'" invoiceId="'.$invoiceId.'" shopId="'.$this->yoo_shopid
             .'" techmessage="'.$message.'"/>';
         echo $xml;
         die();
@@ -747,19 +669,19 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     private function processResult()
     {
         if ($this->checkSign($_POST)) {
-            if (isset($_POST['action']) || ($this->mode !== self::MODE_KASSA)) {
+            if (isset($_POST['action']) || ($this->mode !== self::MODE_YOOKASSA)) {
                 $order_id = intval(Core_Array::getPost(isset($_POST["label"]) ? "label" : "orderNumber"));
                 if ($order_id > 0) {
                     $oShop_Order = $this->_shopOrder;
 
                     $sHostcmsSum = sprintf("%.2f", $this->getSumWithCoeff());
-                    $sYandexSum  = Core_Array::getRequest('orderSumAmount', '');
+                    $sYoomoneySum  = Core_Array::getRequest('orderSumAmount', '');
 
-                    if ($sHostcmsSum == $sYandexSum) {
+                    if ($sHostcmsSum == $sYoomoneySum) {
                         if ($_POST['action'] == 'paymentAviso') {
                             $this->shopOrder($oShop_Order)->shopOrderBeforeAction(clone $oShop_Order);
 
-                            $oShop_Order->system_information = "Заказ оплачен через сервис Яндекс.Касса.\n";
+                            $oShop_Order->system_information = "Заказ оплачен через сервис ЮKassa.\n";
                             $oShop_Order->paid();
 
                             if (method_exists($this, 'setMailSubjects')) {
@@ -842,8 +764,8 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                     )
                 )
                 ->setMetadata(array(
-                    'cms_name'       => 'ya_api_hostcms',
-                    'module_version' => self::YAMONEY_MODULE_VERSION,
+                    'cms_name'       => 'yoo_api_hostcms',
+                    'module_version' => self::YOOMONEY_MODULE_VERSION,
                 ));
 
         if ($this->sendCheck) {
@@ -912,7 +834,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
         $this->log('info', 'Payment completed');
         $this->shopOrder($order)->shopOrderBeforeAction(clone $order);
 
-        $order->system_information = "Заказ оплачен через сервис Яндекс.Касса.\n";
+        $order->system_information = "Заказ оплачен через сервис ЮKassa.\n";
         $order->paid();
 
         if (method_exists($this, 'setMailSubjects')) {
@@ -933,7 +855,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     private function log($level, $message)
     {
         if ($this->enable_logging) {
-            YandexCheckoutLogger::instance()->log($level, $message);
+            YooMoneyLogger::instance()->log($level, $message);
         }
     }
 
@@ -971,7 +893,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      */
     private function createDescription()
     {
-        $descriptionTemplate = $this->ym_description;
+        $descriptionTemplate = $this->yoo_description;
 
         $replace  = array();
         $patterns = explode('%', $descriptionTemplate);
@@ -1004,10 +926,10 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
             $this->apiClient = new Client();
             $userAgent = $this->apiClient->getApiClient()->getUserAgent();
             $userAgent->setCms('HostCMS', Informationsystem_Module::factory('informationsystem')->version);
-            $userAgent->setModule('PaymentGateway', self::YAMONEY_MODULE_VERSION);
-            $this->apiClient->setAuth($this->ym_shopid, $this->ym_password);
+            $userAgent->setModule('PaymentGateway', self::YOOMONEY_MODULE_VERSION);
+            $this->apiClient->setAuth($this->yoo_shopid, $this->yoo_password);
             if ($this->enable_logging) {
-                $this->apiClient->setLogger(YandexCheckoutLogger::instance());
+                $this->apiClient->setLogger(YooMoneyLogger::instance());
             }
         }
 
@@ -1032,7 +954,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
     {
         $result = null;
         $paymentRow = Core_QueryBuilder::select()
-            ->from('shop_ym_order_payments')
+            ->from('shop_yoo_order_payments')
             ->where('order_id', '=', $order_id)
             ->orderBy('id', 'DESC')
             ->limit(1)
@@ -1185,7 +1107,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
 }
 
 
-class YandexCheckoutLogger extends Core_Log
+class YooMoneyLogger extends Core_Log
 {
     static public function instance()
     {
@@ -1194,7 +1116,7 @@ class YandexCheckoutLogger extends Core_Log
 
     public function getLogName($date)
     {
-        return $this->_logDir.DIRECTORY_SEPARATOR.'yc_payment_log_'.date('d_m_Y',
+        return $this->_logDir.DIRECTORY_SEPARATOR.'yoo_payment_log_'.date('d_m_Y',
                 Core_Date::sql2timestamp($date)).'.log';
     }
 
