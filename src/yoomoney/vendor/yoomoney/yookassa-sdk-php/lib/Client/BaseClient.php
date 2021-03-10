@@ -25,7 +25,6 @@
 
 namespace YooKassa\Client;
 
-
 use Exception;
 use Psr\Log\LoggerInterface;
 use YooKassa\Common\Exceptions\ApiConnectionException;
@@ -265,13 +264,35 @@ class BaseClient
             return '{}';
         }
 
-        $result = json_encode($serializedData);
-        if ($result === false) {
+        if (defined('JSON_UNESCAPED_UNICODE') && defined('JSON_UNESCAPED_SLASHES')) {
+            $encoded = json_encode($serializedData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $encoded = self::_unescaped(json_encode($serializedData));
+        }
+
+        if ($encoded === false) {
             $errorCode = json_last_error();
             throw new JsonException("Failed serialize json.", $errorCode);
         }
 
-        return $result;
+        return $encoded;
+    }
+
+    /**
+     * @param string $json
+     * @return string|false
+     */
+    private static function _unescaped($json)
+    {
+        if ($json === false) {
+            return false;
+        }
+
+        $json = str_replace('\\/', '/', $json);
+
+        return preg_replace_callback('/\\\\u(\w{4})/', function ($matches) {
+            return html_entity_decode('&#x' . $matches[1] . ';', ENT_COMPAT, 'UTF-8');
+        }, $json);
     }
 
     /**
