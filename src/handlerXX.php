@@ -2,7 +2,7 @@
 
 /**
  * ЮKassa
- * Версия 2.0.0
+ * Версия 2.0.1
  *
  * Лицензионный договор:
  * Любое использование Вами программы означает полное и безоговорочное принятие Вами условий лицензионного договора,
@@ -49,7 +49,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * в «Настройках магазина» в разделе «Параметры для платежей»
      */
 
-    const YOOMONEY_MODULE_VERSION = '2.0.0';
+    const YOOMONEY_MODULE_VERSION = '2.0.1';
 
     /**
      * @var int ЮKassa
