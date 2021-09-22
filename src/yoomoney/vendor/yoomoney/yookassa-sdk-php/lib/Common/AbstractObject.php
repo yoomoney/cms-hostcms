@@ -41,7 +41,7 @@ if (!interface_exists('JsonSerializable')) {
 /**
  * Базовый класс генерируемых объектов
  *
- * @package YooKassa\Common
+ * @package YooKassa
  */
 abstract class AbstractObject implements \ArrayAccess, \JsonSerializable
 {
@@ -177,13 +177,23 @@ abstract class AbstractObject implements \ArrayAccess, \JsonSerializable
 
     /**
      * Устанавливает значения свойств текущего объекта из массива
-     * @param array|\Traversable $sourceArray Ассоциативный массив с найтройками
+     * @param array|\Traversable $sourceArray Ассоциативный массив с настройками
      */
     public function fromArray($sourceArray)
     {
         foreach ($sourceArray as $key => $value) {
             $this->offsetSet($key, $value);
         }
+    }
+
+    /**
+     * Возвращает ассоциативный массив со свойствами текущего объекта для его дальнейшей JSON сериализации
+     * Является алиасом метода AbstractObject::jsonSerialize()
+     * @return array Ассоциативный массив со свойствами текущего объекта
+     */
+    public function toArray()
+    {
+        return $this->jsonSerialize();
     }
 
     /**
@@ -220,8 +230,14 @@ abstract class AbstractObject implements \ArrayAccess, \JsonSerializable
 
     private function serializeValueToJson($value)
     {
-        if ($value === null || is_scalar($value) || is_array($value)) {
+        if ($value === null || is_scalar($value)) {
             return $value;
+        } elseif (is_array($value)) {
+            $array = array();
+            foreach ($value as $key => $item) {
+                $array[$key] = $this->serializeValueToJson($item);
+            }
+            return $array;
         } elseif (is_object($value) && $value instanceof \JsonSerializable) {
             return $value->jsonSerialize();
         } elseif (is_object($value) && $value instanceof \DateTime) {
@@ -246,6 +262,6 @@ abstract class AbstractObject implements \ArrayAccess, \JsonSerializable
      */
     private static function matchPropertyName($property)
     {
-        return preg_replace('/\_(\w)/', '\1', $property);
+        return preg_replace('/_(\w)/', '\1', $property);
     }
 }

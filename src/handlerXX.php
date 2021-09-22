@@ -2,7 +2,7 @@
 
 /**
  * ЮKassa
- * Версия 2.0.2
+ * Версия 2.1.0
  *
  * Лицензионный договор:
  * Любое использование Вами программы означает полное и безоговорочное принятие Вами условий лицензионного договора,
@@ -49,7 +49,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * в «Настройках магазина» в разделе «Параметры для платежей»
      */
 
-    const YOOMONEY_MODULE_VERSION = '2.0.2';
+    const YOOMONEY_MODULE_VERSION = '2.1.0';
 
     /**
      * @var int ЮKassa
@@ -115,6 +115,12 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
      * @var int По умолчанию - "Доставлено"
      */
     protected $orderStatusSecondCheck = 3;
+
+    /**
+     * Направлять пользователя на страницу оплаты сразу после выбора метода оплаты
+     * @var bool По умолчанию - false
+     */
+    protected $autoRedirectToKassa = false;
 
     /**
      * @var bool Включить логирование.
@@ -503,7 +509,7 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                     <table border="0" cellspacing="1" align="center" width="80%">
                         <tr>
                             <td align="center">
-                                <a href="<?php echo $confirmationUrl?>" class="btn btn-primary">Оплатить</a>
+                                <a href="<?php echo $confirmationUrl?>" id="button-confirm" class="btn btn-primary">Оплатить</a>
                             </td>
                         </tr>
                     </table>
@@ -526,15 +532,16 @@ class Shop_Payment_System_HandlerXX extends Shop_Payment_System_Handler
                 <input type="hidden" name="need-email" value="true">
                 <input type="hidden" name="need-phone" value="false">
                 <input type="hidden" name="need-address" value="false">
-                <input type="submit" name="BuyButton" value="Оплатить">
+                <input type="submit" name="BuyButton" id="button-confirm" value="Оплатить">
             <?php }?>
         </form>
         <script type="text/javascript">
-            document.getElementById('button-confirm').addEventListener('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                document.getElementById('frmYooMoney').submit();
-            }, false);
+            <?php if ($this->autoRedirectToKassa) : ?>
+            const paymentButton = document.getElementById('button-confirm');
+            if (paymentButton) {
+                paymentButton.click();
+            }
+            <?php endif; ?>
         </script>
         <?php
     }
@@ -1120,11 +1127,41 @@ class YooMoneyLogger extends Core_Log
                 Core_Date::sql2timestamp($date)).'.log';
     }
 
-    public function log($level = 'info', $message, $context = null)
+    public function log($level, $message, $context = null)
     {
         $this->clear()
             ->notify(false)
-            ->status(Core_Log::$MESSAGE)
+            ->status($this->convertLevelToType($level))
             ->write($message);
+    }
+
+    /**
+     * Convert standard log level to HostCMS type
+     * @param string $level
+     * @return int
+     */
+    private function convertLevelToType ($level)
+    {
+        $type = self::$MESSAGE;
+
+        switch ($level) {
+            case 'info':
+                $type = self::$MESSAGE;
+                break;
+            case 'debug':
+                $type = self::$SUCCESS;
+                break;
+            case 'notice':
+                $type = self::$NOTICE;
+                break;
+            case 'warn':
+                $type = self::$WARNING;
+                break;
+            case 'error':
+                $type = self::$ERROR;
+                break;
+        }
+
+        return $type;
     }
 }
